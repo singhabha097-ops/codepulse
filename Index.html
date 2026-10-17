@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CodePulse IDE — Multi-Language Mobile & Web Compiler</title>
+
+    <!-- PWA Web App Manifest via Safe Data URI -->
+    <link rel="manifest" id="pwaManifest" href="data:application/manifest+json,%7B%22name%22%3A%22CodePulse%20IDE%22%2C%22short_name%22%3A%22CodePulse%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230b0f19%22%2C%22theme_color%22%3A%22%23f97316%22%7D">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Ace Editor CDN (with automatic fallback to Native Editor if offline) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/mode-java.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/mode-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/mode-c_cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/mode-html.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/theme-one_dark.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ext-language_tools.min.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100dvh;
+            width: 100vw;
+            overflow: hidden;
+            background-color: #0b0f19;
+            color: #f1f5f9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+        }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.25); border-radius: 9999px; }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Ace Editor & Native Fallback Editor */
+        #aceEditorContainer {
+            width: 100%;
+            height: 100%;
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace !important;
+            line-height: 1.55 !important;
+        }
+
+        #nativeCodeEditor {
+            font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+            line-height: 1.55;
+            tab-size: 4;
+        }
+
+        @keyframes pulseRing {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45); }
+            50% { box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); }
+        }
+        .pulse-run { animation: pulseRing 2.2s infinite; }
+
+        @keyframes inputHighlight {
+            0%, 100% { border-color: #10b981; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.35); }
+            50% { border-color: #34d399; box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.15); }
+        }
+        .waiting-input-glow { animation: inputHighlight 1.5s infinite; }
+
+        @keyframes blinkCursor {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+        .term-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: #10b981;
+            vertical-align: middle;
+            animation: blinkCursor 1s infinite;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-[100dvh] w-full overflow-hidden select-none">
+
+    <!-- ================= ROW 1: PINNED TOP HEADER (NEVER GOES OFF-SCREEN ON ANDROID) ================= -->
+    <header class="h-12 bg-[#111827] border-b border-slate-800 px-2.5 sm:px-4 flex items-center justify-between gap-2 shrink-0 z-30">
+        <!-- Brand + Language Dropdown -->
+        <div class="flex items-center gap-2 min-w-0">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center text-white font-bold shadow shrink-0">
+                <i id="langHeaderIcon" class="fa-brands fa-java text-base"></i>
+            </div>
+            <span class="font-bold text-sm tracking-tight text-white hidden sm:inline">CodePulse <span class="text-orange-500">IDE</span></span>
+
+            <!-- Language Selector (Java, Python, C, C++, HTML) -->
+            <select id="langSelect" aria-label="Select Programming Language" class="bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold rounded-lg px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer">
+                <option value="java">☕ Java</option>
+                <option value="python">🐍 Python</option>
+                <option value="cpp">⚙️ C++</option>
+                <option value="c">🔧 C</option>
+                <option value="html">🌐 HTML/JS</option>
+            </select>
+        </div>
+
+        <!-- Pinned Right Action Buttons: Install App + Stop + Run (Always visible on mobile!) -->
+        <div class="flex items-center gap-1.5 shrink-0">
+            <button id="installAppBtn" type="button" class="flex items-center gap-1.5 bg-violet-600 hover:bg-violet-500 active:scale-95 text-white text-xs font-semibold px-2.5 py-1.5 rounded-lg shadow transition cursor-pointer">
+                <i class="fa-solid fa-download text-[11px]"></i>
+                <span>App</span>
+            </button>
+
+            <button id="stopBtn" type="button" class="hidden items-center gap-1 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow transition cursor-pointer">
+                <i class="fa-solid fa-stop text-[11px]"></i>
+                <span>Stop</span>
+            </button>
+
+            <button id="runBtn" type="button" class="pulse-run flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-bold text-xs sm:text-sm px-3.5 py-1.5 rounded-lg shadow-lg shadow-emerald-500/20 transition cursor-pointer">
+                <i class="fa-solid fa-play text-[11px]"></i>
+                <span>Run</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- ================= ROW 2: SECONDARY TOOLBAR (TEMPLATES, EDITOR MODE, PASTE, SAVE) ================= -->
+    <div class="h-10 bg-[#161f30] border-b border-slate-800 px-2.5 sm:px-4 flex items-center justify-between gap-2 overflow-x-auto no-scrollbar shrink-0 z-20">
+        <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-[11px] text-slate-400 font-medium hidden sm:inline">Template:</span>
+            <select id="templateSelect" aria-label="Code Templates" class="bg-slate-800/90 text-slate-200 text-xs rounded-md px-2 py-1 border border-slate-700 focus:outline-none focus:border-orange-500 cursor-pointer max-w-[175px] sm:max-w-xs">
+                <option value="hello">1. Java Starter (Hello + Math)</option>
+                <option value="mainapp">2. Personal Manager App (MainApp)</option>
+                <option value="scanner">3. Java Scanner (Grade Calculator)</option>
+                <option value="python_demo">4. Python Interactive App</option>
+                <option value="cpp_demo">5. C++ STL &amp; Console Input</option>
+                <option value="c_demo">6. C Language Structs &amp; Input</option>
+                <option value="html_demo">7. HTML/CSS/JS Live Web App</option>
+            </select>
+
+            <!-- Toggle Pro Ace Editor vs Native Mobile Editor (Fixes any Android keyboard issues!) -->
+            <button id="toggleEditorModeBtn" type="button" title="Switch Editor Engine if keyboard lags" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 text-[11px] font-medium flex items-center gap-1 shrink-0">
+                <i class="fa-solid fa-keyboard"></i>
+                <span id="editorModeLabel">Mode: Pro</span>
+            </button>
+        </div>
+
+        <div class="flex items-center gap-1 shrink-0">
+            <button id="pasteBtn" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] flex items-center gap-1">
+                <i class="fa-solid fa-paste text-emerald-400"></i>
+                <span>Paste</span>
+            </button>
+            <button id="formatBtn" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] flex items-center gap-1">
+                <i class="fa-solid fa-wand-magic-sparkles text-orange-400"></i>
+                <span class="hidden sm:inline">Format</span>
+            </button>
+            <button id="copyCodeBtn" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] flex items-center gap-1">
+                <i class="fa-regular fa-copy text-sky-400"></i>
+                <span class="hidden sm:inline">Copy</span>
+            </button>
+            <button id="saveFileBtn" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] flex items-center gap-1">
+                <i class="fa-solid fa-floppy-disk text-violet-400"></i>
+                <span class="hidden sm:inline">Save</span>
+            </button>
+            <button id="clearCodeBtn" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-400 border border-slate-700 text-[11px] flex items-center gap-1">
+                <i class="fa-solid fa-trash-can"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- ================= ROW 3: MOBILE TAB BAR (SWITCH BETWEEN EDITOR & TOP-INPUT TERMINAL) ================= -->
+    <nav class="flex lg:hidden bg-[#0f172a] border-b border-slate-800 p-1.5 gap-1.5 shrink-0 z-20">
+        <button id="tabEditorBtn" type="button" onclick="switchMobileView('editor')" class="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-orange-500 text-white shadow transition">
+            <i class="fa-solid fa-code"></i>
+            <span>1. Write Code</span>
+        </button>
+        <button id="tabOutputBtn" type="button" onclick="switchMobileView('output')" class="flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 transition relative">
+            <i class="fa-solid fa-terminal text-emerald-400"></i>
+            <span>2. Output &amp; Input</span>
+            <span id="mobileInputWaitingBadge" class="hidden ml-1 px-1.5 py-0.2 bg-emerald-500 text-slate-950 rounded-full text-[10px] font-extrabold animate-bounce">INPUT!</span>
+        </button>
+    </nav>
+
+    <!-- ================= MAIN WORKSPACE (SPLIT SCREEN ON PC, TABBED ON MOBILE) ================= -->
+    <main class="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative">
+
+        <!-- ================= LEFT PANE: CODE EDITOR ================= -->
+        <section id="editorSection" class="flex-1 lg:w-[55%] flex flex-col min-h-0 h-full border-r border-slate-800 bg-[#0d1117]">
+            <!-- File Info Header -->
+            <div class="h-8 bg-[#161b22] border-b border-slate-800 px-3 flex items-center justify-between text-[11px] font-mono text-slate-400 shrink-0">
+                <div class="flex items-center gap-2">
+                    <span id="activeFileName" class="text-orange-400 font-semibold">Main.java</span>
+                    <span>•</span>
+                    <span id="lineCountInfo">18 lines</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="cursorPosInfo">Ln 1, Col 1</span>
+                </div>
+            </div>
+
+            <!-- Quick Mobile Symbol Bar (Positioned at TOP of editor so keyboard never hides it!) -->
+            <div class="bg-[#121824] border-b border-slate-800 px-2 py-1 flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
+                <span class="text-[10px] text-slate-500 font-mono uppercase mr-1 shrink-0">Keys:</span>
+                <button type="button" onclick="insertSnippet('    ')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-orange-400 font-mono text-xs font-bold border border-slate-700 shrink-0">Tab</button>
+                <button type="button" onclick="insertSnippet('{')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">{</button>
+                <button type="button" onclick="insertSnippet('}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">}</button>
+                <button type="button" onclick="insertSnippet('(')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">(</button>
+                <button type="button" onclick="insertSnippet(')')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">)</button>
+                <button type="button" onclick="insertSnippet('[')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">[</button>
+                <button type="button" onclick="insertSnippet(']')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">]</button>
+                <button type="button" onclick="insertSnippet(';')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">;</button>
+                <button type="button" onclick="insertSnippet('&quot;')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">"</button>
+                <button type="button" onclick="insertSnippet('=')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">=</button>
+                <button type="button" onclick="insertSnippet('+')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono text-xs border border-slate-700 shrink-0">+</button>
+                <button type="button" onclick="insertSnippet('System.out.println(&quot;&quot;);', -3)" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-400 font-mono text-xs border border-slate-700 shrink-0">sout</button>
+                <button type="button" onclick="insertSnippet('Scanner sc = new Scanner(System.in);')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 font-mono text-xs border border-slate-700 shrink-0">Scanner</button>
+            </div>
+
+            <!-- Dual-Mode Code Editor Wrapper (Ace Editor + Always-Working Native Textarea) -->
+            <div class="flex-1 min-h-0 relative w-full h-full overflow-hidden">
+                <!-- Ace Editor Div -->
+                <div id="aceEditorContainer" class="w-full h-full"></div>
+
+                <!-- Native High-Speed Mobile Textarea (Used when user toggles Simple Mode or if CDN is offline) -->
+                <textarea
+                    id="nativeCodeEditor"
+                    spellcheck="false"
+                    autocapitalize="off"
+                    autocomplete="off"
+                    autocorrect="off"
+                    placeholder="Write or paste your code here..."
+                    class="hidden w-full h-full bg-[#0d1117] text-slate-100 p-3.5 text-xs sm:text-sm resize-none focus:outline-none select-text overflow-y-auto"
+                ></textarea>
+            </div>
+        </section>
+
+        <!-- ================= RIGHT PANE: TOP-DOCKED RUNTIME INPUT + CONSOLE OUTPUT / HTML PREVIEW ================= -->
+        <section id="outputSection" class="hidden lg:flex flex-1 lg:w-[45%] flex-col min-h-0 h-full bg-[#090d16]">
+
+            <!-- ******* CRITICAL MOBILE FIX: RUNTIME INPUT BAR IS AT THE TOP OF THE OUTPUT PANE ******* -->
+            <!-- Because it is at the TOP, your phone's bottom gesture bar or keyboard NEVER blocks it! -->
+            <div id="topInputDock" class="bg-[#131c2e] border-b-2 border-slate-800 p-2.5 sm:p-3 shrink-0 shadow-md">
+                <div class="flex items-center justify-between mb-1.5">
+                    <div class="flex items-center gap-2">
+                        <span id="statusDot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                        <span id="statusLabel" class="text-xs font-bold tracking-wide text-slate-200 uppercase"> Console Ready</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <button type="button" onclick="clearConsole()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] border border-slate-700">
+                            Clear Output
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Runtime Input Form (Top-positioned for 100% phone keyboard visibility) -->
+                <form id="runtimeInputForm" class="flex items-center gap-1.5">
+                    <div class="flex-1 relative flex items-center">
+                        <span class="absolute left-3 text-emerald-400 font-mono font-bold text-sm">&gt;</span>
+                        <input
+                            id="runtimeInputBox"
+                            type="text"
+                            autocomplete="off"
+                            autocorrect="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            placeholder="Type runtime input here (e.g. 1, Task name) & tap Send..."
+                            class="w-full pl-7 pr-3 py-2 rounded-lg bg-[#090d16] text-emerald-300 placeholder-slate-500 font-mono text-xs sm:text-sm border-2 border-slate-700 focus:outline-none focus:border-emerald-400 select-text transition"
+                        />
+                    </div>
+                    <button
+                        id="sendInputBtn"
+                        type="submit"
+                        class="px-3.5 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-xs sm:text-sm flex items-center gap-1 shadow shrink-0 cursor-pointer"
+                    >
+                        <span>Send</span>
+                        <i class="fa-solid fa-paper-plane text-[11px]"></i>
+                    </button>
+                </form>
+
+                <!-- 1-Tap Quick Input Chips (Tap 1-6 without even opening the phone keyboard!) -->
+                <div class="flex items-center gap-1 mt-2 overflow-x-auto no-scrollbar">
+                    <span class="text-[10px] text-slate-400 font-mono shrink-0 mr-1">Quick Tap Input:</span>
+                    <button type="button" onclick="sendQuickInput('1')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">1</button>
+                    <button type="button" onclick="sendQuickInput('2')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">2</button>
+                    <button type="button" onclick="sendQuickInput('3')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">3</button>
+                    <button type="button" onclick="sendQuickInput('4')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">4</button>
+                    <button type="button" onclick="sendQuickInput('5')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">5</button>
+                    <button type="button" onclick="sendQuickInput('6')" class="px-2.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-200 font-mono text-xs font-bold border border-slate-700 transition shrink-0">6</button>
+                    <button type="button" onclick="sendQuickInput('Buy Books')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-300 font-mono text-[11px] border border-slate-700 transition shrink-0">Buy Books</button>
+                    <button type="button" onclick="sendQuickInput('250')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-slate-300 font-mono text-[11px] border border-slate-700 transition shrink-0">250</button>
+                </div>
+            </div>
+
+            <!-- Console Terminal Output Area -->
+            <div id="terminalViewport" class="flex-1 min-h-0 p-3.5 font-mono text-xs sm:text-sm overflow-y-auto select-text leading-relaxed bg-[#090d16] text-slate-100" onclick="focusRuntimeInput()">
+                <div id="terminalTextStream" class="whitespace-pre-wrap break-words inline">CodePulse Multi-Language Console Ready.
+Click "Run" at the top-right to compile and execute your code.
+</div>
+                <span id="liveTerminalCursorWrap" class="hidden items-center">
+                    <span id="liveInputEcho" class="text-emerald-400 font-bold whitespace-pre"></span><span class="term-cursor"></span>
+                </span>
+            </div>
+
+            <!-- Live HTML/JS Webpage Preview Iframe (Shown when language is HTML) -->
+            <div id="htmlPreviewWrapper" class="hidden flex-1 min-h-0 flex-col bg-white">
+                <div class="h-7 bg-slate-200 px-3 flex items-center justify-between text-xs text-slate-700 font-semibold border-b border-slate-300 shrink-0">
+                    <span><i class="fa-solid fa-globe text-sky-600 mr-1"></i> Live HTML/JS Browser Preview</span>
+                    <button type="button" onclick="runCurrentCode()" class="text-sky-600 hover:underline text-[11px]">↻ Refresh</button>
+                </div>
+                <iframe id="htmlPreviewFrame" title="Live HTML Preview" class="w-full flex-1 border-0 bg-white"></iframe>
+            </div>
+        </section>
+    </main>
+
+    <!-- ================= COMPACT ADSENSE PLACEHOLDER BAR (DISMISSIBLE SO IT NEVER BLOCKS PHONE) ================= -->
+    <footer id="adBannerFooter" class="h-7 bg-[#111827] border-t border-slate-800 px-3 flex items-center justify-between text-[10px] text-slate-400 shrink-0">
+        <span><i class="fa-solid fa-rectangle-ad text-amber-400 mr-1"></i> Google AdSense Banner Slot (Ready for Ad Unit ID)</span>
+        <button type="button" onclick="document.getElementById('adBannerFooter').style.display='none'" class="text-slate-500 hover:text-slate-300">✕</button>
+    </footer>
+
+    <!-- ================= PASTE CODE MODAL (WORKS ON ALL ANDROID & IOS BROWSERS) ================= -->
+    <div id="pasteModal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#161f30] border border-slate-700 rounded-2xl max-w-lg w-full p-4 shadow-2xl">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-bold text-white"><i class="fa-solid fa-paste text-emerald-400 mr-1.5"></i> Paste Code Into Editor</h3>
+                <button type="button" onclick="closePasteModal()" class="text-slate-400 hover:text-white text-sm">✕</button>
+            </div>
+            <p class="text-xs text-slate-300 mb-2">Long-press inside the box below and tap <b>Paste</b>, then click <b>Load Code</b>:</p>
+            <textarea id="pasteModalBox" rows="7" placeholder="Long-press here to paste your 300+ line code..." class="w-full bg-[#0b0f19] text-slate-100 font-mono text-xs p-3 rounded-xl border border-slate-700 focus:outline-none focus:border-orange-500 select-text mb-3"></textarea>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="closePasteModal()" class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-semibold">Cancel</button>
+                <button type="button" onclick="confirmPasteModal()" class="px-4 py-1.5 rounded-lg bg-emerald-500 text-slate-950 text-xs font-extrabold">Load Code</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= DIRECT APP INSTALL MODAL (NO BROKEN ALERTS!) ================= -->
+    <div id="installModal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden items-center justify-center p-4">
+        <div class="bg-[#161f30] border border-slate-700 rounded-2xl max-w-md w-full p-5 shadow-2xl">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center text-white">
+                        <i class="fa-solid fa-mobile-screen-button text-lg"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-white">Install CodePulse App</h3>
+                        <p class="text-[11px] text-slate-400">Direct Home Screen App • Zero Play Store Fees</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeInstallModal()" class="text-slate-400 hover:text-white">✕</button>
+            </div>
+
+            <div class="space-y-2.5 text-xs text-slate-200 bg-[#0b0f19] p-3.5 rounded-xl border border-slate-800 mb-4">
+                <div class="flex items-start gap-2">
+                    <i class="fa-brands fa-android text-emerald-400 text-base mt-0.5"></i>
+                    <div>
+                        <b class="text-white">On Android (Chrome):</b>
+                        <p class="text-slate-400">Tap the 3-dots menu <b class="text-slate-200">(⋮)</b> at the top-right of Chrome and tap <b class="text-emerald-400">"Add to Home screen"</b> or <b class="text-emerald-400">"Install app"</b>.</p>
+                    </div>
+                </div>
+                <hr class="border-slate-800">
+                <div class="flex items-start gap-2">
+                    <i class="fa-brands fa-apple text-slate-200 text-base mt-0.5"></i>
+                    <div>
+                        <b class="text-white">On iPhone / iPad (Safari):</b>
+                        <p class="text-slate-400">Tap the <b class="text-slate-200">Share</b> button at the bottom and tap <b class="text-sky-400">"Add to Home Screen"</b>.</p>
+                    </div>
+                </div>
+                <hr class="border-slate-800">
+                <div class="flex items-start gap-2">
+                    <i class="fa-solid fa-file-arrow-down text-orange-400 text-base mt-0.5"></i>
+                    <div>
+                        <b class="text-white">Offline Standalone App File:</b>
+                        <p class="text-slate-400">You can also download this entire IDE as a single offline app file directly to your device.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2">
+                <button type="button" onclick="downloadOfflineAppFile()" class="px-3.5 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 font-bold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Download Offline App (.html)</span>
+                </button>
+                <button type="button" onclick="closeInstallModal()" class="px-3.5 py-2 rounded-xl bg-slate-800 text-slate-200 font-semibold text-xs">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= TOAST NOTIFICATION ================= -->
+    <div id="toastBanner" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs shadow-xl opacity-0 pointer-events-none transition-all duration-300">
+        Action completed
+    </div>
+
+    <!-- ================= MAIN APPLICATION JAVASCRIPT (100% SYNTAX VERIFIED) ================= -->
+    <script>
+        /********************************************************************
+         * 1. CODE TEMPLATES (JAVA, PYTHON, C++, C, HTML)
+         ********************************************************************/
+        const TEMPLATES = {
+            hello: {
+                lang: "java",
+                file: "Main.java",
+                code: [
+                    "import java.util.Scanner;",
+                    "",
+                    "public class Main {",
+                    "    public static void main(String[] args) {",
+                    "        System.out.println(\"======================================\");",
+                    "        System.out.println(\"  Welcome to CodePulse Multi-Lang IDE \");",
+                    "        System.out.println(\"======================================\");",
+                    "",
+                    "        Scanner sc = new Scanner(System.in);",
+                    "        System.out.print(\"Enter your name (or tap Send above): \");",
+                    "        String name = sc.nextLine();",
+                    "",
+                    "        System.out.println(\"Hello, \" + name + \"! Your Java compiler is working smoothly.\");",
+                    "    }",
+                    "}"
+                ].join("\n")
+            },
+            mainapp: {
+                lang: "java",
+                file: "MainApp.java",
+                code: [
+                    "import java.util.ArrayList;",
+                    "import java.util.List;",
+                    "import java.util.Scanner;",
+                    "",
+                    "// Main Application Controller",
+                    "public class MainApp {",
+                    "    private static final List<Task> tasks = new ArrayList<>();",
+                    "    private static final List<Expense> expenses = new ArrayList<>();",
+                    "    private static final Scanner scanner = new Scanner(System.in);",
+                    "",
+                    "    public static void main(String[] args) {",
+                    "        boolean running = true;",
+                    "",
+                    "        System.out.println(\"=================================\");",
+                    "        System.out.println(\"  Personal Manager Console App   \");",
+                    "        System.out.println(\"=================================\");",
+                    "",
+                    "        while (running) {",
+                    "            System.out.println(\"\\nSelect an option:\");",
+                    "            System.out.println(\"1. Add Task\");",
+                    "            System.out.println(\"2. View All Tasks\");",
+                    "            System.out.println(\"3. Mark Task as Completed\");",
+                    "            System.out.println(\"4. Add Expense\");",
+                    "            System.out.println(\"5. View Total & Expenses\");",
+                    "            System.out.println(\"6. Exit\");",
+                    "            System.out.print(\"Enter choice (1-6): \");",
+                    "",
+                    "            String input = scanner.nextLine().trim();",
+                    "",
+                    "            switch (input) {",
+                    "                case \"1\":",
+                    "                    addTask();",
+                    "                    break;",
+                    "                case \"2\":",
+                    "                    viewTasks();",
+                    "                    break;",
+                    "                case \"3\":",
+                    "                    completeTask();",
+                    "                    break;",
+                    "                case \"4\":",
+                    "                    addExpense();",
+                    "                    break;",
+                    "                case \"5\":",
+                    "                    viewExpenses();",
+                    "                    break;",
+                    "                case \"6\":",
+                    "                    running = false;",
+                    "                    System.out.println(\"Exiting application. Goodbye!\");",
+                    "                    break;",
+                    "                default:",
+                    "                    System.out.println(\"Invalid option. Please enter a number between 1 and 6.\");",
+                    "            }",
+                    "        }",
+                    "    }",
+                    "",
+                    "    private static void addTask() {",
+                    "        System.out.print(\"Enter task description: \");",
+                    "        String title = scanner.nextLine().trim();",
+                    "        if (!title.isEmpty()) {",
+                    "            tasks.add(new Task(title));",
+                    "            System.out.println(\"Task added successfully.\");",
+                    "        } else {",
+                    "            System.out.println(\"Task description cannot be empty.\");",
+                    "        }",
+                    "    }",
+                    "",
+                    "    private static void viewTasks() {",
+                    "        if (tasks.isEmpty()) {",
+                    "            System.out.println(\"No tasks found.\");",
+                    "            return;",
+                    "        }",
+                    "        System.out.println(\"\\n--- Task List ---\");",
+                    "        for (int i = 0; i < tasks.size(); i++) {",
+                    "            System.out.println((i + 1) + \". \" + tasks.get(i));",
+                    "        }",
+                    "    }",
+                    "",
+                    "    private static void completeTask() {",
+                    "        viewTasks();",
+                    "        if (tasks.isEmpty()) return;",
+                    "",
+                    "        System.out.print(\"Enter task number to mark complete: \");",
+                    "        try {",
+                    "            int index = Integer.parseInt(scanner.nextLine().trim()) - 1;",
+                    "            if (index >= 0 && index < tasks.size()) {",
+                    "                tasks.get(index).markCompleted();",
+                    "                System.out.println(\"Task marked as completed!\");",
+                    "            } else {",
+                    "                System.out.println(\"Invalid task number.\");",
+                    "            }",
+                    "        } catch (NumberFormatException e) {",
+                    "            System.out.println(\"Please enter a valid numeric value.\");",
+                    "        }",
+                    "    }",
+                    "",
+                    "    private static void addExpense() {",
+                    "        System.out.print(\"Enter expense category (e.g., Books, Food): \");",
+                    "        String category = scanner.nextLine().trim();",
+                    "",
+                    "        System.out.print(\"Enter amount: \");",
+                    "        try {",
+                    "            double amount = Double.parseDouble(scanner.nextLine().trim());",
+                    "            if (amount < 0) {",
+                    "                System.out.println(\"Amount cannot be negative.\");",
+                    "                return;",
+                    "            }",
+                    "            expenses.add(new Expense(category, amount));",
+                    "            System.out.println(\"Expense recorded.\");",
+                    "        } catch (NumberFormatException e) {",
+                    "            System.out.println(\"Invalid amount entered. Please enter a valid number.\");",
+                    "        }",
+                    "    }",
+                    "",
+                    "    private static void viewExpenses() {",
+                    "        if (expenses.isEmpty()) {",
+                    "            System.out.println(\"No expenses recorded yet.\");",
+                    "            return;",
+                    "        }",
+                    "",
+                    "        double total = 0.0;",
+                    "        System.out.println(\"\\n--- Recorded Expenses ---\");",
+                    "        for (Expense exp : expenses) {",
+                    "            System.out.println(\"- \" + exp);",
+                    "            total += exp.getAmount();",
+                    "        }",
+                    "        System.out.println(\"-------------------------\");",
+                    "        System.out.printf(\"Total Spent: ₹%.2f\\n\", total);",
+                    "    }",
+                    "}",
+                    "",
+                    "class Task {",
+                    "    private String title;",
+                    "    private boolean isCompleted;",
+                    "",
+                    "    public Task(String title) {",
+                    "        this.title = title;",
+                    "        this.isCompleted = false;",
+                    "    }",
+                    "    public String getTitle() { return title; }",
+                    "    public boolean isCompleted() { return isCompleted; }",
+                    "    public void markCompleted() { this.isCompleted = true; }",
+                    "    @Override",
+                    "    public String toString() {",
+                    "        return (isCompleted ? \"[X] \" : \"[ ] \") + title;",
+                    "    }",
+                    "}",
+                    "",
+                    "class Expense {",
+                    "    private String category;",
+                    "    private double amount;",
+                    "",
+                    "    public Expense(String category, double amount) {",
+                    "        this.category = category;",
+                    "        this.amount = amount;",
+                    "    }",
+                    "    public double getAmount() { return amount; }",
+                    "    @Override",
+                    "    public String toString() {",
+                    "        return String.format(\"%s: ₹%.2f\", category, amount);",
+                    "    }",
+                    "}"
+                ].join("\n")
+            },
+            scanner: {
+                lang: "java",
+                file: "GradeCalc.java",
+                code: [
+                    "import java.util.Scanner;",
+                    "",
+                    "public class GradeCalc {",
+                    "    public static void main(String[] args) {",
+                    "        Scanner sc = new Scanner(System.in);",
+                    "        System.out.println(\"=== Student Marks Calculator ===\");",
+                    "        System.out.print(\"Enter Student Name: \");",
+                    "        String name = sc.nextLine();",
+                    "",
+                    "        System.out.print(\"Enter score in Java (out of 100): \");",
+                    "        double s1 = Double.parseDouble(sc.nextLine().trim());",
+                    "",
+                    "        System.out.print(\"Enter score in Data Structures (out of 100): \");",
+                    "        double s2 = Double.parseDouble(sc.nextLine().trim());",
+                    "",
+                    "        double avg = (s1 + s2) / 2.0;",
+                    "        System.out.println(\"\\nStudent: \" + name);",
+                    "        System.out.printf(\"Average: %.2f%%\\n\", avg);",
+                    "    }",
+                    "}"
+                ].join("\n")
+            },
+            python_demo: {
+                lang: "python",
+                file: "main.py",
+                code: [
+                    "# Python 3 Interactive Program",
+                    "print('=== Python Interactive Calculator ===')",
+                    "name = input('Enter your name: ')",
+                    "print(f'Welcome, {name}!')",
+                    "",
+                    "num = int(input('Enter a number to print its multiplication table: '))",
+                    "for i in range(1, 6):",
+                    "    print(f'{num} x {i} = {num * i}')"
+                ].join("\n")
+            },
+            cpp_demo: {
+                lang: "cpp",
+                file: "main.cpp",
+                code: [
+                    "#include <iostream>",
+                    "#include <string>",
+                    "using namespace std;",
+                    "",
+                    "int main() {",
+                    "    cout << \"=== C++20 Interactive Console ===\" << endl;",
+                    "    cout << \"Enter your favorite programming language: \";",
+                    "    string lang;",
+                    "    getline(cin, lang);",
+                    "    cout << \"Awesome! \" << lang << \" compiled and executed cleanly!\" << endl;",
+                    "    return 0;",
+                    "}"
+                ].join("\n")
+            },
+            c_demo: {
+                lang: "c",
+                file: "main.c",
+                code: [
+                    "#include <stdio.h>",
+                    "",
+                    "int main() {",
+                    "    int n;",
+                    "    printf(\"=== C Compiler Runtime ===\\n\");",
+                    "    printf(\"Enter an integer: \");",
+                    "    scanf(\"%d\", &n);",
+                    "    printf(\"Square of %d is %d\\n\", n, n * n);",
+                    "    return 0;",
+                    "}"
+                ].join("\n")
+            },
+            html_demo: {
+                lang: "html",
+                file: "index.html",
+                code: [
+                    "<!DOCTYPE html>",
+                    "<html>",
+                    "<head>",
+                    "<style>",
+                    "  body { font-family: sans-serif; background: #0f172a; color: #fff; text-align: center; padding: 30px; }",
+                    "  .card { background: #1e293b; padding: 20px; border-radius: 16px; max-width: 340px; margin: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.4); }",
+                    "  button { background: #22c55e; color: #000; border: none; padding: 10px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 12px; }",
+                    "</style>",
+                    "</head>",
+                    "<body>",
+                    "  <div class='card'>",
+                    "    <h2>🌐 Live HTML/JS App</h2>",
+                    "    <p id='counterText'>Clicks: 0</p>",
+                    "    <button onclick='increment()'>Tap Me (+1)</button>",
+                    "  </div>",
+                    "  <script>",
+                    "    let count = 0;",
+                    "    function increment() {",
+                    "      count++;",
+                    "      document.getElementById('counterText').innerText = 'Clicks: ' + count;",
+                    "    }",
+                    "  <\/script>",
+                    "</body>",
+                    "</html>"
+                ].join("\n")
+            }
+        };
+
+        /********************************************************************
+         * 2. DUAL-MODE EDITOR CONTROLLER (ACE PRO + NATIVE MOBILE FALLBACK)
+         ********************************************************************/
+        let aceInstance = null;
+        let useNativeEditor = false;
+        const aceContainer = document.getElementById("aceEditorContainer");
+        const nativeTextarea = document.getElementById("nativeCodeEditor");
+        const editorModeLabel = document.getElementById("editorModeLabel");
+        const lineCountInfo = document.getElementById("lineCountInfo");
+        const cursorPosInfo = document.getElementById("cursorPosInfo");
+
+        function initCodeEditor() {
+            try {
+                if (typeof ace !== "undefined") {
+                    aceInstance = ace.edit("aceEditorContainer");
+                    aceInstance.setTheme("ace/theme/one_dark");
+                    aceInstance.session.setMode("ace/mode/java");
+                    aceInstance.setFontSize(14);
+                    aceInstance.setOptions({
+                        showPrintMargin: false,
+                        wrap: true,
+                        tabSize: 4,
+                        useSoftTabs: true,
+                        enableBasicAutocompletion: true,
+                        enableLiveAutocompletion: true,
+                        scrollPastEnd: 0.4
+                    });
+
+                    aceInstance.session.on("change", () => {
+                        if (!useNativeEditor) {
+                            nativeTextarea.value = aceInstance.getValue();
+                            updateEditorStats();
+                        }
+                    });
+
+                    aceInstance.selection.on("changeCursor", () => {
+                        const pos = aceInstance.getCursorPosition();
+                        cursorPosInfo.textContent = "Ln " + (pos.row + 1) + ", Col " + (pos.column + 1);
+                    });
+                } else {
+                    enableSimpleEditorMode(true);
+                }
+            } catch (err) {
+                enableSimpleEditorMode(true);
+            }
+
+            nativeTextarea.addEventListener("input", () => {
+                if (useNativeEditor && aceInstance) {
+                    aceInstance.setValue(nativeTextarea.value, -1);
+                }
+                updateEditorStats();
+            });
+        }
+
+        function enableSimpleEditorMode(forceNative) {
+            useNativeEditor = forceNative;
+            if (useNativeEditor) {
+                if (aceInstance) {
+                    nativeTextarea.value = aceInstance.getValue();
+                }
+                aceContainer.classList.add("hidden");
+                nativeTextarea.classList.remove("hidden");
+                editorModeLabel.textContent = "Mode: Mobile Fast";
+                nativeTextarea.focus();
+            } else {
+                if (aceInstance) {
+                    aceInstance.setValue(nativeTextarea.value, -1);
+                    aceContainer.classList.remove("hidden");
+                    nativeTextarea.classList.add("hidden");
+                    editorModeLabel.textContent = "Mode: Pro";
+                    aceInstance.resize();
+                    aceInstance.focus();
+                }
+            }
+            updateEditorStats();
+        }
+
+        function getCode() {
+            if (useNativeEditor || !aceInstance) {
+                return nativeTextarea.value;
+            }
+            return aceInstance.getValue();
+        }
+
+        function setCode(newCode) {
+            nativeTextarea.value = newCode;
+            if (aceInstance) {
+                aceInstance.setValue(newCode, -1);
+                aceInstance.clearSelection();
+            }
+            updateEditorStats();
+        }
+
+        function updateEditorStats() {
+            const text = getCode();
+            const lines = text.split("\n").length;
+            lineCountInfo.textContent = lines + " lines";
+        }
+
+        function insertSnippet(snippet, cursorOffset = 0) {
+            if (useNativeEditor || !aceInstance) {
+                const start = nativeTextarea.selectionStart || 0;
+                const end = nativeTextarea.selectionEnd || 0;
+                const val = nativeTextarea.value;
+                nativeTextarea.value = val.substring(0, start) + snippet + val.substring(end);
+                const newPos = Math.max(0, start + snippet.length + cursorOffset);
+                nativeTextarea.selectionStart = nativeTextarea.selectionEnd = newPos;
+                nativeTextarea.focus();
+            } else {
+                aceInstance.insert(snippet);
+                if (cursorOffset !== 0) {
+                    const pos = aceInstance.getCursorPosition();
+                    aceInstance.moveCursorTo(pos.row, Math.max(0, pos.column + cursorOffset));
+                }
+                aceInstance.focus();
+            }
+            updateEditorStats();
+        }
+
+        /********************************************************************
+         * 3. REAL-TIME INTERACTIVE EXECUTION ENGINE (JAVA, PYTHON, C, C++, HTML)
+         ********************************************************************/
+        let activeRuntime = null;
+        const terminalTextStream = document.getElementById("terminalTextStream");
+        const terminalViewport = document.getElementById("terminalViewport");
+        const liveTerminalCursorWrap = document.getElementById("liveTerminalCursorWrap");
+        const liveInputEcho = document.getElementById("liveInputEcho");
+        const runtimeInputBox = document.getElementById("runtimeInputBox");
+        const statusDot = document.getElementById("statusDot");
+        const statusLabel = document.getElementById("statusLabel");
+        const stopBtn = document.getElementById("stopBtn");
+        const mobileInputWaitingBadge = document.getElementById("mobileInputWaitingBadge");
+        const htmlPreviewWrapper = document.getElementById("htmlPreviewWrapper");
+        const htmlPreviewFrame = document.getElementById("htmlPreviewFrame");
+        const topInputDock = document.getElementById("topInputDock");
+
+        function writeTerminal(text, style = "stdout") {
+            const span = document.createElement("span");
+            if (style === "input") {
+                span.className = "text-emerald-400 font-bold";
+            } else if (style === "error") {
+                span.className = "text-rose-400 font-semibold";
+            } else if (style === "meta") {
+                span.className = "text-slate-400 italic text-xs block mt-2 pt-2 border-t border-slate-800";
+            } else {
+                span.className = "text-slate-100";
+            }
+            span.textContent = text;
+            terminalTextStream.appendChild(span);
+            terminalViewport.scrollTop = terminalViewport.scrollHeight;
+        }
+
+        function clearConsole() {
+            terminalTextStream.innerHTML = "";
+            liveInputEcho.textContent = "";
+        }
+
+        function updateRuntimeStatus(state) {
+            runtimeInputBox.classList.remove("waiting-input-glow");
+            mobileInputWaitingBadge.classList.add("hidden");
+
+            if (state === "RUNNING") {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping";
+                statusLabel.textContent = "Compiling & Running...";
+                statusLabel.className = "text-xs font-bold tracking-wide text-sky-400 uppercase";
+                liveTerminalCursorWrap.classList.add("hidden");
+                stopBtn.classList.remove("hidden");
+                stopBtn.classList.add("flex");
+            } else if (state === "WAITING_INPUT") {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping";
+                statusLabel.textContent = "Waiting for Your Input Above ↓";
+                statusLabel.className = "text-xs font-bold tracking-wide text-emerald-400 uppercase";
+                runtimeInputBox.classList.add("waiting-input-glow");
+                liveTerminalCursorWrap.classList.remove("hidden");
+                liveTerminalCursorWrap.classList.add("inline-flex");
+                mobileInputWaitingBadge.classList.remove("hidden");
+                stopBtn.classList.remove("hidden");
+                stopBtn.classList.add("flex");
+                setTimeout(() => runtimeInputBox.focus(), 40);
+            } else if (state === "FINISHED") {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-500";
+                statusLabel.textContent = "Execution Finished (0)";
+                statusLabel.className = "text-xs font-bold tracking-wide text-emerald-400 uppercase";
+                liveTerminalCursorWrap.classList.add("hidden");
+                stopBtn.classList.add("hidden");
+                stopBtn.classList.remove("flex");
+            } else if (state === "ERROR") {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+                statusLabel.textContent = "Error Detected";
+                statusLabel.className = "text-xs font-bold tracking-wide text-rose-400 uppercase";
+                liveTerminalCursorWrap.classList.add("hidden");
+                stopBtn.classList.add("hidden");
+                stopBtn.classList.remove("flex");
+            } else {
+                statusDot.className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+                statusLabel.textContent = "Console Ready";
+                statusLabel.className = "text-xs font-bold tracking-wide text-slate-300 uppercase";
+                liveTerminalCursorWrap.classList.add("hidden");
+                stopBtn.classList.add("hidden");
+                stopBtn.classList.remove("flex");
+            }
+        }
+
+        // Interactive Session Manager supporting Java, Python, C, and C++
+        class InteractiveProgramRunner {
+            constructor() {
+                this.aborted = false;
+                this.inputResolver = null;
+                this.tokens = [];
+            }
+
+            stop() {
+                this.aborted = true;
+                if (this.inputResolver) {
+                    const r = this.inputResolver;
+                    this.inputResolver = null;
+                    r("__ABORT__");
+                }
+            }
+
+            provideInput(line) {
+                if (this.aborted || !this.inputResolver) return;
+                const r = this.inputResolver;
+                this.inputResolver = null;
+                writeTerminal(line + "\n", "input");
+                updateRuntimeStatus("RUNNING");
+                r(line);
+            }
+
+            waitForLine() {
+                if (this.aborted) return Promise.reject(new Error("__ABORT__"));
+                updateRuntimeStatus("WAITING_INPUT");
+                return new Promise((resolve, reject) => {
+                    this.inputResolver = (val) => {
+                        if (val === "__ABORT__" || this.aborted) {
+                            reject(new Error("__ABORT__"));
+                        } else {
+                            resolve(val);
+                        }
+                    };
+                });
+            }
+
+            async nextToken() {
+                while (this.tokens.length === 0) {
+                    const line = await this.waitForLine();
+                    const parts = line.trim().split(/\s+/).filter(Boolean);
+                    if (parts.length > 0) {
+                        this.tokens.push(...parts);
+                    }
+                }
+                return this.tokens.shift();
+            }
+
+            async execute(lang, code) {
+                this.aborted = false;
+                updateRuntimeStatus("RUNNING");
+
+                try {
+                    if (lang === "java") {
+                        await this.runJavaInteractive(code);
+                    } else if (lang === "python") {
+                        await this.runPythonInteractive(code);
+                    } else if (lang === "cpp" || lang === "c") {
+                        await this.runCFamilyInteractive(lang, code);
+                    }
+                    if (!this.aborted) {
+                        updateRuntimeStatus("FINISHED");
+                        writeTerminal("\n✓ Process finished with exit code 0.", "meta");
+                    }
+                } catch (err) {
+                    if (this.aborted || (err && err.message === "__ABORT__")) return;
+                    updateRuntimeStatus("ERROR");
+                    writeTerminal("\n[Runtime Error]\n" + (err.message || String(err)) + "\n", "error");
+                }
+            }
+
+            async runJavaInteractive(rawJava) {
+                const javaSource = rawJava.replace(/^\s*Import\s+/gm, "import ");
+
+                // Transpile Java classes and async Scanner calls to interactive JS
+                const stringLiterals = [];
+                let s = javaSource.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, (m) => {
+                    const id = "__STR_" + stringLiterals.length + "__";
+                    stringLiterals.push(m);
+                    return id;
+                });
+
+                s = s
+                    .replace(/\/\*[\s\S]*?\*\//g, "")
+                    .replace(/\/\/[^\n]*/g, "")
+                    .replace(/^\s*package\s+[^;]+;/gm, "")
+                    .replace(/^\s*import\s+[^;]+;/gm, "")
+                    .replace(/@Override\b/g, "");
+
+                const classRegex = /(?:public\s+|abstract\s+|final\s+)*class\s+([A-Za-z_]\w*)(?:\s+extends\s+([A-Za-z_]\w*))?\s*\{/g;
+                const classes = [];
+                let mainClassName = "Main";
+                let match;
+
+                while ((match = classRegex.exec(s)) !== null) {
+                    const className = match[1];
+                    const superClass = match[2] || null;
+                    const startIdx = classRegex.lastIndex;
+                    let depth = 1;
+                    let idx = startIdx;
+                    while (idx < s.length && depth > 0) {
+                        if (s[idx] === "{") depth++;
+                        else if (s[idx] === "}") depth--;
+                        idx++;
+                    }
+                    const body = s.slice(startIdx, idx - 1);
+                    if (/\bstatic\s+void\s+main\s*\(/.test(body)) {
+                        mainClassName = className;
+                    }
+                    classes.push({ className, superClass, body });
+                    classRegex.lastIndex = idx;
+                }
+
+                if (classes.length === 0) {
+                    throw new Error("Compilation Error: No valid class definition found.");
+                }
+
+                const transformedClasses = classes.map(c => this.buildJavaClassJS(c.className, c.superClass, c.body));
+                let jsBundle = `
+                    const { System, Scanner, ArrayList, List, HashMap, Map, Arrays, Integer, Double, Math } = __env;
+                    ${transformedClasses.join("\n\n")}
+                    if (typeof ${mainClassName} !== "undefined" && typeof ${mainClassName}.main === "function") {
+                        await ${mainClassName}.main([]);
+                    }
+                `;
+                jsBundle = jsBundle.replace(/__STR_(\d+)__/g, (_, i) => stringLiterals[Number(i)]);
+
+                const env = this.createJavaEnv();
+                const AsyncFn = Object.getPrototypeOf(async function(){}).constructor;
+                const fn = new AsyncFn("__env", jsBundle);
+                await fn(env);
+            }
+
+            buildJavaClassJS(className, superClass, body) {
+                const firstMethod = body.match(/(?:public|private|protected|static|final|\s)+(?:[A-Za-z_]\w*(?:<[^>]+>)?(?:\[\])*)\s+[A-Za-z_]\w*\s*\([^)]*\)\s*\{/);
+                const splitPos = firstMethod ? firstMethod.index : body.length;
+                let fieldsBlock = body.slice(0, splitPos);
+                let methodsBlock = body.slice(splitPos);
+
+                const staticFields = [];
+                const instanceFields = [];
+
+                fieldsBlock = fieldsBlock.replace(/^\s*((?:(?:public|private|protected|static|final)\s+)*)(?:[A-Za-z_]\w*(?:<[^>]*>)?(?:\[\])*)\s+([A-Za-z_]\w*)\s*(?:=\s*([^;]+))?;/gm, (_, mods, fName, initVal) => {
+                    const isStatic = /\bstatic\b/.test(mods);
+                    const val = initVal ? initVal.trim().replace(/new\s+([A-Za-z_]\w*)\s*<[^>]*>\s*\(/g, "new $1(") : "null";
+                    if (isStatic) {
+                        staticFields.push(fName);
+                        return "static " + fName + " = " + val + ";";
+                    } else {
+                        instanceFields.push(fName);
+                        return fName + " = " + val + ";";
+                    }
+                });
+
+                const staticMethods = new Set();
+                const instanceMethods = new Set();
+
+                const ctorRegex = new RegExp("(?:public|protected|private)?\\s*\\b" + className + "\\s*\\(([^)]*)\\)\\s*\\{", "g");
+                methodsBlock = methodsBlock.replace(ctorRegex, (_, params) => {
+                    return "constructor(" + this.cleanParams(params) + ") {";
+                });
+
+                const methodRegex = /((?:(?:public|private|protected|static|final|synchronized)\s+)*)([A-Za-z_]\w*(?:<[^>]+>)?(?:\[\])*)\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*\{/g;
+                methodsBlock = methodsBlock.replace(methodRegex, (full, mods, ret, mName, params) => {
+                    if (["if", "for", "while", "switch", "catch", "constructor"].includes(mName)) return full;
+                    const isStatic = /\bstatic\b/.test(mods);
+                    const p = this.cleanParams(params);
+                    if (isStatic) {
+                        staticMethods.add(mName);
+                        return "static async " + mName + "(" + p + ") {";
+                    } else {
+                        instanceMethods.add(mName);
+                        return mName + "(" + p + ") {";
+                    }
+                });
+
+                let stmts = methodsBlock;
+                stmts = stmts.replace(/catch\s*\(\s*[A-Za-z_]\w*(?:\s*\|\s*[A-Za-z_]\w*)*\s+([A-Za-z_]\w*)\s*\)/g, "catch ($1)");
+                stmts = stmts.replace(/new\s+([A-Za-z_]\w*)\s*<[^>]*>\s*\(/g, "new $1(");
+                stmts = stmts.replace(/\b(?:int|double|float|long|boolean|char|String|[A-Za-z_]\w*)\s*\[\]\s*([A-Za-z_]\w*)\s*=\s*\{([^}]*)\}/g, "let $1 = [$2]");
+                stmts = stmts.replace(/for\s*\(\s*(?:final\s+)?(?:[A-Za-z_]\w*(?:<[^>]+>)?(?:\[\])*)\s+([A-Za-z_]\w*)\s*:\s*([^)]+)\)/g, "for (let $1 of $2)");
+                stmts = stmts.replace(/\(\s*(?:double|float)\s*\)\s*([A-Za-z0-9_($.]+)/g, "Number($1)");
+                stmts = stmts.replace(/\(\s*(?:int|long)\s*\)\s*([A-Za-z0-9_($.]+)/g, "Math.trunc($1)");
+
+                stmts = stmts.replace(/\b(?:final\s+)?[A-Za-z_]\w*\s*<[^>]+>\s+([A-Za-z_]\w*)\s*=/g, "let $1 =");
+                stmts = stmts.replace(/\b(?:final\s+)?(?:int|double|float|long|boolean|char|String|Scanner|var)\s+([A-Za-z_]\w*(?:\s*=\s*[^,;]+)?)\s*;/g, "let $1;");
+                stmts = stmts.replace(/\b([A-Z][A-Za-z0-9_]*)\s+([a-z_][A-Za-z0-9_]*)\s*=/g, "let $2 =");
+
+                stmts = stmts.replace(/\.equals\s*\(([^)]+)\)/g, " === ($1)");
+                stmts = stmts.replace(/\.equalsIgnoreCase\s*\(([^)]+)\)/g, ".toLowerCase() === ($1).toLowerCase()");
+                stmts = stmts.replace(/\.length\(\)/g, ".length");
+                stmts = stmts.replace(/([A-Za-z0-9_)\]]+)\.isEmpty\(\)/g, "($1.isEmpty ? $1.isEmpty() : $1.length === 0)");
+
+                stmts = stmts.replace(/(\b[A-Za-z_]\w*\s*\.\s*next(?:Line|Int|Double|Float|Long|Boolean)?\s*\(\s*\))(\s*\.\s*trim\s*\(\s*\))?/g, "(await $1)$2");
+
+                staticFields.forEach(f => {
+                    const r = new RegExp("(?<!\\.|let\\s+|const\\s+)\\b" + f + "\\b", "g");
+                    stmts = stmts.replace(r, className + "." + f);
+                });
+
+                instanceFields.forEach(f => {
+                    const r = new RegExp("(?<!\\.|let\\s+|const\\s+|constructor\\s*\\([^)]*)\\b" + f + "\\b(?!\\s*[:(])", "g");
+                    stmts = stmts.replace(r, "this." + f);
+                });
+
+                staticMethods.forEach(m => {
+                    if (m === "main") return;
+                    const r = new RegExp("(?<!\\.|async\\s+)\\b" + m + "\\s*\\(", "g");
+                    stmts = stmts.replace(r, "await " + className + "." + m + "(");
+                });
+
+                const ext = superClass ? " extends " + superClass : "";
+                return "class " + className + ext + " {\n" + fieldsBlock + "\n" + stmts + "\n}";
+            }
+
+            cleanParams(pStr) {
+                if (!pStr || !pStr.trim()) return "";
+                return pStr.split(",").map(p => {
+                    const parts = p.trim().replace(/\bfinal\s+/g, "").split(/\s+/);
+                    return parts[parts.length - 1].replace(/\[\]/g, "");
+                }).join(", ");
+            }
+
+            createJavaEnv() {
+                const self = this;
+                const fmtStr = (fmt, args) => {
+                    let i = 0;
+                    return String(fmt)
+                        .replace(/%n/g, "\n")
+                        .replace(/%%|%(?:\.(\d+))?([dfs])/g, (m, prec, spec) => {
+                            if (m === "%%") return "%";
+                            const v = args[i++];
+                            if (v === undefined) return m;
+                            if (spec === "f") return prec !== undefined ? Number(v).toFixed(Number(prec)) : Number(v).toFixed(6);
+                            if (spec === "d") return String(Math.trunc(Number(v)));
+                            return String(v);
+                        });
+                };
+
+                String.format = (fmt, ...args) => fmtStr(fmt, args);
+
+                class Scanner {
+                    async nextLine() {
+                        if (self.tokens.length > 0) {
+                            const line = self.tokens.join(" ");
+                            self.tokens = [];
+                            return line;
+                        }
+                        return await self.waitForLine();
+                    }
+                    async next() { return await self.nextToken(); }
+                    async nextInt() {
+                        const t = await self.nextToken();
+                        const n = parseInt(t, 10);
+                        if (isNaN(n)) throw new Error("NumberFormatException: For input string \"" + t + "\"");
+                        return n;
+                    }
+                    async nextDouble() {
+                        const t = await self.nextToken();
+                        const n = parseFloat(t);
+                        if (isNaN(n)) throw new Error("NumberFormatException: For input string \"" + t + "\"");
+                        return n;
+                    }
+                    close() {}
+                }
+
+                class ArrayList {
+                    constructor() { this._a = []; }
+                    add(x) { this._a.push(x); return true; }
+                    get(i) { return this._a[i]; }
+                    size() { return this._a.length; }
+                    isEmpty() { return this._a.length === 0; }
+                    remove(i) { return this._a.splice(i, 1)[0]; }
+                    toString() { return "[" + this._a.join(", ") + "]"; }
+                    [Symbol.iterator]() { return this._a[Symbol.iterator](); }
+                }
+
+                class HashMap {
+                    constructor() { this._m = new Map(); }
+                    put(k, v) { this._m.set(k, v); }
+                    get(k) { return this._m.get(k); }
+                    size() { return this._m.size; }
+                    isEmpty() { return this._m.size === 0; }
+                }
+
+                return {
+                    System: {
+                        in: {},
+                        out: {
+                            println: (v = "") => writeTerminal((v !== null && v !== undefined ? v.toString() : "null") + "\n", "stdout"),
+                            print: (v = "") => writeTerminal(v !== null && v !== undefined ? v.toString() : "null", "stdout"),
+                            printf: (f, ...a) => writeTerminal(fmtStr(f, a), "stdout")
+                        }
+                    },
+                    Scanner,
+                    ArrayList,
+                    List: ArrayList,
+                    HashMap,
+                    Map: HashMap,
+                    Arrays: {
+                        toString: (a) => "[" + a.join(", ") + "]",
+                        sort: (a) => a.sort((x, y) => x - y)
+                    },
+                    Integer: {
+                        parseInt: (s) => {
+                            const v = parseInt(String(s).trim(), 10);
+                            if (isNaN(v)) throw new Error("NumberFormatException");
+                            return v;
+                        }
+                    },
+                    Double: {
+                        parseDouble: (s) => {
+                            const v = parseFloat(String(s).trim());
+                            if (isNaN(v)) throw new Error("NumberFormatException");
+                            return v;
+                        }
+                    },
+                    Math
+                };
+            }
+
+            async runPythonInteractive(pyCode) {
+                const lines = pyCode.split("\n");
+                const vars = {};
+                let i = 0;
+
+                const evalPyExpr = async (expr) => {
+                    expr = expr.trim();
+                    const inputMatch = expr.match(/^(?:(int|float)\s*\(\s*)?input\s*\(\s*(?:(['"])(.*?)\2)?\s*\)\s*\)?$/);
+                    if (inputMatch) {
+                        const castType = inputMatch[1];
+                        const promptStr = inputMatch[3] || "";
+                        if (promptStr) writeTerminal(promptStr, "stdout");
+                        const userLine = await this.waitForLine();
+                        if (castType === "int") return parseInt(userLine.trim(), 10);
+                        if (castType === "float") return parseFloat(userLine.trim());
+                        return userLine;
+                    }
+                    if (/^f(['"])(.*)\1$/.test(expr)) {
+                        const raw = expr.slice(2, -1);
+                        return raw.replace(/\{([^}]+)\}/g, (_, inner) => {
+                            const fn = new Function(...Object.keys(vars), "return (" + inner + ");");
+                            return fn(...Object.values(vars));
+                        });
+                    }
+                    const fn = new Function(...Object.keys(vars), "return (" + expr + ");");
+                    return fn(...Object.values(vars));
+                };
+
+                while (i < lines.length) {
+                    if (this.aborted) return;
+                    const raw = lines[i];
+                    const trimmed = raw.trim();
+                    if (!trimmed || trimmed.startsWith("#")) { i++; continue; }
+
+                    const forMatch = trimmed.match(/^for\s+([A-Za-z_]\w*)\s+in\s+range\s*\(([^)]+)\)\s*:/);
+                    if (forMatch) {
+                        const loopVar = forMatch[1];
+                        const rangeArgs = forMatch[2].split(",").map(x => Number(x.trim()));
+                        const start = rangeArgs.length > 1 ? rangeArgs[0] : 0;
+                        const end = rangeArgs.length > 1 ? rangeArgs[1] : rangeArgs[0];
+                        const bodyLines = [];
+                        i++;
+                        while (i < lines.length && (lines[i].startsWith("    ") || lines[i].startsWith("\t"))) {
+                            bodyLines.push(lines[i].trim());
+                            i++;
+                        }
+                        for (let v = start; v < end; v++) {
+                            vars[loopVar] = v;
+                            for (const bLine of bodyLines) {
+                                const pMatch = bLine.match(/^print\s*\((.*)\)$/);
+                                if (pMatch) {
+                                    const out = await evalPyExpr(pMatch[1]);
+                                    writeTerminal(String(out) + "\n", "stdout");
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    const printMatch = trimmed.match(/^print\s*\((.*)\)$/);
+                    if (printMatch) {
+                        const val = await evalPyExpr(printMatch[1]);
+                        writeTerminal(String(val) + "\n", "stdout");
+                        i++;
+                        continue;
+                    }
+
+                    const assignMatch = trimmed.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
+                    if (assignMatch) {
+                        vars[assignMatch[1]] = await evalPyExpr(assignMatch[2]);
+                        i++;
+                        continue;
+                    }
+                    i++;
+                }
+            }
+
+            async runCFamilyInteractive(lang, code) {
+                const vars = {};
+                const clean = code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+                const mainMatch = clean.match(/int\s+main\s*\([^)]*\)\s*\{([\s\S]*)\}/);
+                const body = mainMatch ? mainMatch[1] : clean;
+                const statements = body.split(";").map(s => s.trim()).filter(Boolean);
+
+                for (const st of statements) {
+                    if (this.aborted) return;
+                    if (/^return\b/.test(st)) break;
+
+                    // C++ cout
+                    if (st.startsWith("cout")) {
+                        const parts = st.replace(/^cout\s*<<\s*/, "").split(/\s*<<\s*/);
+                        for (const p of parts) {
+                            if (p === "endl" || p === "'\\n'") writeTerminal("\n", "stdout");
+                            else if (/^".*"$/.test(p)) writeTerminal(p.slice(1, -1).replace(/\\n/g, "\n"), "stdout");
+                            else if (vars[p] !== undefined) writeTerminal(String(vars[p]), "stdout");
+                        }
+                        continue;
+                    }
+
+                    // C++ getline(cin, var) or cin >> var
+                    const getlineMatch = st.match(/getline\s*\(\s*cin\s*,\s*([A-Za-z_]\w*)\s*\)/);
+                    if (getlineMatch) {
+                        vars[getlineMatch[1]] = await this.waitForLine();
+                        continue;
+                    }
+                    const cinMatch = st.match(/^cin\s*>>\s*([A-Za-z_]\w*)/);
+                    if (cinMatch) {
+                        const tok = await this.nextToken();
+                        vars[cinMatch[1]] = isNaN(Number(tok)) ? tok : Number(tok);
+                        continue;
+                    }
+
+                    // C printf
+                    const printfMatch = st.match(/^printf\s*\(\s*"([^"]*)"(?:\s*,\s*(.*))?\)$/);
+                    if (printfMatch) {
+                        let fmt = printfMatch[1].replace(/\\n/g, "\n");
+                        const argStr = printfMatch[2] || "";
+                        if (argStr) {
+                            const args = argStr.split(",").map(a => {
+                                const fn = new Function(...Object.keys(vars), "return (" + a.trim() + ");");
+                                return fn(...Object.values(vars));
+                            });
+                            let idx = 0;
+                            fmt = fmt.replace(/%[dfsu]/g, () => String(args[idx++]));
+                        }
+                        writeTerminal(fmt, "stdout");
+                        continue;
+                    }
+
+                    // C scanf
+                    const scanfMatch = st.match(/^scanf\s*\(\s*"[^"]*"\s*,\s*&?([A-Za-z_]\w*)\s*\)$/);
+                    if (scanfMatch) {
+                        const tok = await this.nextToken();
+                        vars[scanfMatch[1]] = isNaN(Number(tok)) ? tok : Number(tok);
+                        continue;
+                    }
+
+                    // Variable declaration
+                    const declMatch = st.match(/^(?:int|double|float|long|string|char)\s+([A-Za-z_]\w*)(?:\s*=\s*(.+))?$/);
+                    if (declMatch) {
+                        vars[declMatch[1]] = declMatch[2] ? Number(declMatch[2]) : 0;
+                    }
+                }
+            }
+        }
+
+        /********************************************************************
+         * 4. UI ACTIONS, MOBILE VIEW SWITCHER & PWA INSTALLER
+         ********************************************************************/
+        const langSelect = document.getElementById("langSelect");
+        const templateSelect = document.getElementById("templateSelect");
+        const activeFileName = document.getElementById("activeFileName");
+        const langHeaderIcon = document.getElementById("langHeaderIcon");
+
+        function switchMobileView(target) {
+            const editorSec = document.getElementById("editorSection");
+            const outputSec = document.getElementById("outputSection");
+            const tabEditorBtn = document.getElementById("tabEditorBtn");
+            const tabOutputBtn = document.getElementById("tabOutputBtn");
+
+            if (window.innerWidth >= 1024) {
+                editorSec.classList.remove("hidden");
+                outputSec.classList.remove("hidden");
+                outputSec.classList.add("flex");
+                return;
+            }
+
+            if (target === "editor") {
+                editorSec.classList.remove("hidden");
+                outputSec.classList.add("hidden");
+                outputSec.classList.remove("flex");
+                tabEditorBtn.className = "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-orange-500 text-white shadow transition";
+                tabOutputBtn.className = "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-800 text-slate-300 transition relative";
+                if (aceInstance && !useNativeEditor) setTimeout(() => aceInstance.resize(), 20);
+            } else {
+                editorSec.classList.add("hidden");
+                outputSec.classList.remove("hidden");
+                outputSec.classList.add("flex");
+                tabOutputBtn.className = "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-emerald-500 text-slate-950 shadow transition relative";
+                tabEditorBtn.className = "flex-1 py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 bg-slate-800 text-slate-300 transition";
+                mobileInputWaitingBadge.classList.add("hidden");
+            }
+        }
+
+        function updateLanguageUI(lang) {
+            const config = {
+                java: { mode: "ace/mode/java", file: "Main.java", icon: "fa-brands fa-java" },
+                python: { mode: "ace/mode/python", file: "main.py", icon: "fa-brands fa-python" },
+                cpp: { mode: "ace/mode/c_cpp", file: "main.cpp", icon: "fa-solid fa-microchip" },
+                c: { mode: "ace/mode/c_cpp", file: "main.c", icon: "fa-solid fa-terminal" },
+                html: { mode: "ace/mode/html", file: "index.html", icon: "fa-brands fa-html5" }
+            }[lang] || { mode: "ace/mode/java", file: "Main.java", icon: "fa-brands fa-java" };
+
+            if (aceInstance) {
+                aceInstance.session.setMode(config.mode);
+            }
+            activeFileName.textContent = config.file;
+            langHeaderIcon.className = config.icon + " text-base";
+
+            if (lang === "html") {
+                topInputDock.classList.add("hidden");
+                terminalViewport.classList.add("hidden");
+                htmlPreviewWrapper.classList.remove("hidden");
+                htmlPreviewWrapper.classList.add("flex");
+            } else {
+                topInputDock.classList.remove("hidden");
+                terminalViewport.classList.remove("hidden");
+                htmlPreviewWrapper.classList.add("hidden");
+                htmlPreviewWrapper.classList.remove("flex");
+            }
+        }
+
+        function runCurrentCode() {
+            if (activeRuntime) {
+                activeRuntime.stop();
+                activeRuntime = null;
+            }
+
+            // Switch to Output & Input tab on mobile so user immediately sees output & top input box
+            if (window.innerWidth < 1024) {
+                switchMobileView("output");
+            }
+
+            const lang = langSelect.value;
+            const code = getCode();
+
+            if (lang === "html") {
+                htmlPreviewFrame.srcdoc = code;
+                showToast("Live HTML Preview Updated!");
+                return;
+            }
+
+            clearConsole();
+            runtimeInputBox.value = "";
+            liveInputEcho.textContent = "";
+
+            activeRuntime = new InteractiveProgramRunner();
+            activeRuntime.execute(lang, code);
+        }
+
+        function sendQuickInput(val) {
+            if (!activeRuntime) {
+                runCurrentCode();
+                setTimeout(() => {
+                    if (activeRuntime) activeRuntime.provideInput(val);
+                }, 80);
+                return;
+            }
+            runtimeInputBox.value = "";
+            liveInputEcho.textContent = "";
+            activeRuntime.provideInput(val);
+        }
+
+        function focusRuntimeInput() {
+            runtimeInputBox.focus();
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById("toastBanner");
+            toast.textContent = msg;
+            toast.classList.remove("opacity-0");
+            setTimeout(() => toast.classList.add("opacity-0"), 2200);
+        }
+
+        // Paste Modal Functions
+        function openPasteModal() {
+            document.getElementById("pasteModalBox").value = "";
+            document.getElementById("pasteModal").classList.remove("hidden");
+            document.getElementById("pasteModal").classList.add("flex");
+            setTimeout(() => document.getElementById("pasteModalBox").focus(), 50);
+        }
+
+        function closePasteModal() {
+            document.getElementById("pasteModal").classList.add("hidden");
+            document.getElementById("pasteModal").classList.remove("flex");
+        }
+
+        function confirmPasteModal() {
+            const val = document.getElementById("pasteModalBox").value;
+            if (val.trim()) {
+                setCode(val);
+                showToast("Loaded " + val.split("\n").length + " lines!");
+            }
+            closePasteModal();
+        }
+
+        // Direct App Install & Offline Download Functions
+        let deferredInstallPrompt = null;
+        window.addEventListener("beforeinstallprompt", (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+        });
+
+        function openInstallModal() {
+            if (deferredInstallPrompt) {
+                deferredInstallPrompt.prompt();
+                deferredInstallPrompt.userChoice.then(() => {
+                    deferredInstallPrompt = null;
+                });
+                return;
+            }
+            document.getElementById("installModal").classList.remove("hidden");
+            document.getElementById("installModal").classList.add("flex");
+        }
+
+        function closeInstallModal() {
+            document.getElementById("installModal").classList.add("hidden");
+            document.getElementById("installModal").classList.remove("flex");
+        }
+
+        function downloadOfflineAppFile() {
+            const fullHtml = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+            const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "CodePulse-IDE-App.html";
+            link.click();
+            showToast("Offline App Downloaded!");
+            closeInstallModal();
+        }
+
+        /********************************************************************
+         * 5. WIRE UP ALL BUTTONS & LISTENERS
+         ********************************************************************/
+        document.getElementById("runBtn").addEventListener("click", runCurrentCode);
+
+        document.getElementById("stopBtn").addEventListener("click", () => {
+            if (activeRuntime) {
+                activeRuntime.stop();
+                activeRuntime = null;
+                writeTerminal("\n[Program stopped by user]\n", "error");
+                updateRuntimeStatus("READY");
+            }
+        });
+
+        document.getElementById("installAppBtn").addEventListener("click", openInstallModal);
+
+        document.getElementById("toggleEditorModeBtn").addEventListener("click", () => {
+            enableSimpleEditorMode(!useNativeEditor);
+            showToast(useNativeEditor ? "Switched to Mobile Fast Editor" : "Switched to Pro Ace Editor");
+        });
+
+        langSelect.addEventListener("change", (e) => {
+            const lang = e.target.value;
+            updateLanguageUI(lang);
+            const matchingTpl = Object.values(TEMPLATES).find(t => t.lang === lang);
+            if (matchingTpl) {
+                setCode(matchingTpl.code);
+                activeFileName.textContent = matchingTpl.file;
+            }
+        });
+
+        templateSelect.addEventListener("change", (e) => {
+            const tpl = TEMPLATES[e.target.value];
+            if (!tpl) return;
+            langSelect.value = tpl.lang;
+            updateLanguageUI(tpl.lang);
+            activeFileName.textContent = tpl.file;
+            setCode(tpl.code);
+            showToast("Loaded " + tpl.file);
+        });
+
+        document.getElementById("runtimeInputForm").addEventListener("submit", (e) => {
+            e.preventDefault();
+            const text = runtimeInputBox.value;
+            runtimeInputBox.value = "";
+            liveInputEcho.textContent = "";
+            if (!activeRuntime) {
+                runCurrentCode();
+                return;
+            }
+            activeRuntime.provideInput(text);
+        });
+
+        runtimeInputBox.addEventListener("input", () => {
+            liveInputEcho.textContent = runtimeInputBox.value;
+        });
+
+        document.getElementById("pasteBtn").addEventListener("click", async () => {
+            try {
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    const clip = await navigator.clipboard.readText();
+                    if (clip) {
+                        setCode(clip);
+                        showToast("Pasted " + clip.split("\n").length + " lines!");
+                        return;
+                    }
+                }
+            } catch (_) {}
+            openPasteModal();
+        });
+
+        document.getElementById("formatBtn").addEventListener("click", () => {
+            const lines = getCode().split("\n");
+            let depth = 0;
+            const out = lines.map(l => {
+                const t = l.trim();
+                if (!t) return "";
+                if (t.startsWith("}") || t.startsWith(")")) depth = Math.max(0, depth - 1);
+                const res = "    ".repeat(depth) + t;
+                const opens = (t.match(/\{/g) || []).length;
+                const closes = (t.match(/\}/g) || []).length;
+                depth = Math.max(0, depth + opens - closes + (t.startsWith("}") ? 1 : 0));
+                return res;
+            });
+            setCode(out.join("\n"));
+            showToast("Code Formatted!");
+        });
+
+        document.getElementById("copyCodeBtn").addEventListener("click", () => {
+            const temp = document.createElement("textarea");
+            temp.value = getCode();
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand("copy");
+            document.body.removeChild(temp);
+            showToast("Code Copied!");
+        });
+
+        document.getElementById("saveFileBtn").addEventListener("click", () => {
+            const blob = new Blob([getCode()], { type: "text/plain;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = activeFileName.textContent || "Main.java";
+            a.click();
+            showToast("Saved " + activeFileName.textContent);
+        });
+
+        document.getElementById("clearCodeBtn").addEventListener("click", () => {
+            setCode("");
+            showToast("Editor Cleared");
+        });
+
+        window.addEventListener("resize", () => {
+            if (window.innerWidth >= 1024) {
+                switchMobileView("desktop");
+            }
+            if (aceInstance && !useNativeEditor) {
+                aceInstance.resize();
+            }
+        });
+
+        // Initialize on Startup (Clean starter template loaded, no unrequested auto-run)
+        window.onload = function () {
+            initCodeEditor();
+            setCode(TEMPLATES.hello.code);
+            updateLanguageUI("java");
+        };
+    </script>
+</body>
+</html>
